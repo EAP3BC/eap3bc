@@ -1,6 +1,9 @@
 /* ============================================================
    SYNC.JS
    Comunicação com o Supabase (envio e recebimento).
+   - CORREÇÃO: ao remover policial de uma turma (turma_id → null),
+     cancela automaticamente a matrícula em eap_matriculas,
+     para que o matriculaeap pare de exibi-lo como matriculado.
    ============================================================ */
 
 async function checkEapTables(force = false){
@@ -94,6 +97,16 @@ async function deleteTurmaSupabase(turmaId){
   } catch(e){ console.warn('deleteTurma:', e); }
 }
 
+/* ============================================================
+   ⚠️ PONTO CENTRAL DA CORREÇÃO
+   ------------------------------------------------------------
+   Ao sincronizar uma alocação:
+   - Se o policial tem turma (turma_id preenchido) → faz upsert normal.
+   - Se o policial NÃO tem turma (turma_id vazio) → faz upsert E,
+     logo depois, cancela qualquer matrícula confirmada em
+     eap_matriculas, para que o matriculaeap pare de exibi-lo
+     como matriculado.
+   ============================================================ */
 async function syncAlocacaoSupabase(o){
   if (!sb || !o || !o.re) return;
   if (!(await checkEapTables())) return;
@@ -102,6 +115,25 @@ async function syncAlocacaoSupabase(o){
       .upsert(buildAlocacaoRow(o), { onConflict: 're,ano' })
       .select().single();
     if (error) console.warn('syncAlocacao:', error);
+
+    // ── NOVO ───────────────────────────────────────────────
+    // Se o policial foi REMOVIDO da turma, cancela a matrícula.
+    const semTurma = !o.turmaId;
+    if (semTurma){
+      const agora = new Date().toISOString();
+      const { error: errMat } = await sb.from('eap_matriculas')
+        .update({
+          status: 'cancelada',
+          aprovacao: 'reprovada',
+          motivo_reprovacao: 'Removido da turma pelo gestor no EAP 3º B.C.',
+          aprovado_em: agora
+        })
+        .eq('ano', currentYear)
+        .eq('re', String(o.re))
+        .eq('status', 'confirmada');
+      if (errMat) console.warn('[syncAlocacao] cancelar matrícula:', errMat);
+    }
+    // ───────────────────────────────────────────────────────
   } catch(e){ console.warn('syncAlocacao:', e); }
 }
 
@@ -112,6 +144,20 @@ async function deleteAlocacaoSupabase(re){
     const { error } = await sb.from('eap_alocacoes')
       .delete().eq('re', String(re)).eq('ano', currentYear).select();
     if (error) console.warn('deleteAlocacao:', error);
+
+    // ── NOVO ───────────────────────────────────────────────
+    // Policial removido do efetivo → cancela a matrícula também.
+    const { error: errMat } = await sb.from('eap_matriculas')
+      .update({
+        status: 'cancelada',
+        aprovacao: 'reprovada',
+        motivo_reprovacao: 'Policial removido do efetivo pelo gestor.'
+      })
+      .eq('ano', currentYear)
+      .eq('re', String(re))
+      .eq('status', 'confirmada');
+    if (errMat) console.warn('[deleteAlocacao] cancelar matrícula:', errMat);
+    // ───────────────────────────────────────────────────────
   } catch(e){ console.warn('deleteAlocacao:', e); }
 }
 
@@ -313,66 +359,62 @@ async function sincronizarComSupabase({silencioso = false} = {}){
       };
 
       todos.forEach(d => {
-  const re = String(d.re || '').trim();
-  if (!re) return;
-  const aloc = alocPorRE.get(re);
-  const existing = porRE.get(re);
+        const re = String(d.re || '').trim();
+        if (!re) return;
+        const aloc = alocPorRE.get(re);
+        const existing = porRE.get(re);
 
-  if (existing){
-    if (d.dg)              existing.dg = d.dg;
-    if (d.posto_grad)      existing.postoGrad = d.posto_grad;
-    if (d.nome)            existing.nome = d.nome;
-    if (d.cia_secao)       existing.ciaSecao = d.cia_secao;
-    if (d.data_nascimento) existing.dataNascimento = d.data_nascimento;
-    if (d.ias_odonto)      existing.dataExameOdonto = d.ias_odonto;
-    if (d.ias_medico)      existing.dataExameMedico = d.ias_medico;
-    if (d.validade_ias)    existing.validadeIAS = d.validade_ias;
+        if (existing){
+          if (d.dg)              existing.dg = d.dg;
+          if (d.posto_grad)      existing.postoGrad = d.posto_grad;
+          if (d.nome)            existing.nome = d.nome;
+          if (d.cia_secao)       existing.ciaSecao = d.cia_secao;
+          if (d.data_nascimento) existing.dataNascimento = d.data_nascimento;
+          if (d.ias_odonto)      existing.dataExameOdonto = d.ias_odonto;
+          if (d.ias_medico)      existing.dataExameMedico = d.ias_medico;
+          if (d.validade_ias)    existing.validadeIAS = d.validade_ias;
 
-    // 🟢 RECÁLCULO DE CATEGORIA
-    // Sempre reavalia a categoria a partir do Posto/Grad atual
-    existing.categoria = inferirCategoriaPorPosto(d.posto_grad || existing.postoGrad);
-
-    if (aloc){
-      existing.turmaId         = aloc.turma_id || '';
-      existing.taf             = aloc.taf || 'III';
-      existing.tafIVTipo       = aloc.taf_iv_tipo || '';
-      existing.tafResultados   = aloc.taf_resultados || existing.tafResultados || null;
-      existing.inseridoEAD     = aloc.inserido_ead || 'Não';
-      existing.concluiuEAD     = aloc.concluiu_ead || 'Não';
-      existing.notaEAD         = aloc.nota_ead || '';
-      existing.dataConclusaoEAD= aloc.data_conclusao_ead || '';
-      if (typeof aloc.ordem_manual === 'number') existing.ordemManual = aloc.ordem_manual;
-    } else if (typeof existing.ordemManual !== 'number' && typeof d.ordem_manual === 'number'){
-      existing.ordemManual = d.ordem_manual;
-    }
-    atualizados++;
-  } else {
-    const ordemLegacy = (typeof d.ordem_manual === 'number') ? d.ordem_manual : undefined;
-    const novo = {
-      id: uid(), re,
-      dg: d.dg || '', postoGrad: d.posto_grad || '', nome: d.nome || '',
-      ciaSecao: d.cia_secao || '',
-      dataNascimento: d.data_nascimento || '',
-      dataExameOdonto: d.ias_odonto || '',
-      dataExameMedico: d.ias_medico || '',
-      validadeIAS: d.validade_ias || '',
-      // 🟢 SEMPRE infere a categoria do Posto/Grad
-      categoria: inferirCategoriaPorPosto(d.posto_grad),
-      turmaId:   (aloc && aloc.turma_id) || '',
-      taf:       (aloc && aloc.taf) || 'III',
-      tafIVTipo: (aloc && aloc.taf_iv_tipo) || '',
-      tafResultados: (aloc && aloc.taf_resultados) || null,
-      inseridoEAD: (aloc && aloc.inserido_ead) || 'Não',
-      concluiuEAD: (aloc && aloc.concluiu_ead) || 'Não',
-      notaEAD:    (aloc && aloc.nota_ead) || '',
-      dataConclusaoEAD: (aloc && aloc.data_conclusao_ead) || '',
-      ordemManual: (aloc && typeof aloc.ordem_manual === 'number') ? aloc.ordem_manual : ordemLegacy
-    };
-    db.officers.push(novo);
-    porRE.set(re, novo);
-    novos++;
-  }
-});
+          if (aloc){
+            existing.turmaId         = aloc.turma_id || '';
+            existing.categoria       = aloc.categoria || existing.categoria || inferirCategoria(d.posto_grad);
+            existing.taf             = aloc.taf || 'III';
+            existing.tafIVTipo       = aloc.taf_iv_tipo || '';
+            existing.tafResultados   = aloc.taf_resultados || existing.tafResultados || null;
+            existing.inseridoEAD     = aloc.inserido_ead || 'Não';
+            existing.concluiuEAD     = aloc.concluiu_ead || 'Não';
+            existing.notaEAD         = aloc.nota_ead || '';
+            existing.dataConclusaoEAD= aloc.data_conclusao_ead || '';
+            if (typeof aloc.ordem_manual === 'number') existing.ordemManual = aloc.ordem_manual;
+          } else if (typeof existing.ordemManual !== 'number' && typeof d.ordem_manual === 'number'){
+            existing.ordemManual = d.ordem_manual;
+          }
+          atualizados++;
+        } else {
+          const ordemLegacy = (typeof d.ordem_manual === 'number') ? d.ordem_manual : undefined;
+          const novo = {
+            id: uid(), re,
+            dg: d.dg || '', postoGrad: d.posto_grad || '', nome: d.nome || '',
+            ciaSecao: d.cia_secao || '',
+            dataNascimento: d.data_nascimento || '',
+            dataExameOdonto: d.ias_odonto || '',
+            dataExameMedico: d.ias_medico || '',
+            validadeIAS: d.validade_ias || '',
+            categoria: (aloc && aloc.categoria) || inferirCategoria(d.posto_grad),
+            turmaId:   (aloc && aloc.turma_id) || '',
+            taf:       (aloc && aloc.taf) || 'III',
+            tafIVTipo: (aloc && aloc.taf_iv_tipo) || '',
+            tafResultados: (aloc && aloc.taf_resultados) || null,
+            inseridoEAD: (aloc && aloc.inserido_ead) || 'Não',
+            concluiuEAD: (aloc && aloc.concluiu_ead) || 'Não',
+            notaEAD:    (aloc && aloc.nota_ead) || '',
+            dataConclusaoEAD: (aloc && aloc.data_conclusao_ead) || '',
+            ordemManual: (aloc && typeof aloc.ordem_manual === 'number') ? aloc.ordem_manual : ordemLegacy
+          };
+          db.officers.push(novo);
+          porRE.set(re, novo);
+          novos++;
+        }
+      });
 
       saveDB(); render();
       if (!silencioso){
