@@ -1,10 +1,23 @@
 /* ============================================================
    RENDER.JS
    Desenha a tela (estatísticas, turmas, tabelas).
+   - NOVO: 6 cards em "Efetivo Restrições"
+       • Cards 1 e 2  → apenas visualização (não clicáveis)
+       • Cards 3 a 6  → clicáveis para filtrar por tipo de restrição
    ============================================================ */
+
+const FILTRO_RESTRICAO_LABELS = {
+  'Lesão Membros Superiores': 'Membros Superiores',
+  'Lesão Membros Inferiores': 'Membros Inferiores',
+  'Coluna Vertebral':         'Coluna Vertebral',
+  'Cardíaco':                 'Cardíaco'
+};
 
 function render(){ renderStats(); renderContent(); }
 
+/* ============================================================
+   RENDER STATS
+   ============================================================ */
 function renderStats(){
   if (state.activeCategory === 'gestao_matriculas' ||
       state.activeCategory === 'gestao_usuarios'){
@@ -46,6 +59,15 @@ function renderStats(){
     return;
   }
 
+  /* ============================================================
+     EFETIVO RESTRIÇÕES — 6 cards, na ordem exata:
+       1) Efetivo Total 3º B.C.         (não clicável)
+       2) Efetivo Restrições            (não clicável)
+       3) Restrição de Membros Superiores  (clique = filtro)
+       4) Restrição de Membros Inferiores  (clique = filtro)
+       5) Restrição de Coluna Vertebral    (clique = filtro)
+       6) Restrição Cardíaco               (clique = filtro)
+     ============================================================ */
   if (state.activeCategory === 'efetivo_restricoes'){
     const restritos = db.officers.filter(o => o.taf === 'IV');
     const total = restritos.length;
@@ -54,13 +76,77 @@ function renderStats(){
     const col = restritos.filter(o => o.tafIVTipo === 'Coluna Vertebral').length;
     const card= restritos.filter(o => o.tafIVTipo === 'Cardíaco').length;
 
+    const filtroAtivo = state.filtroRestricao || null;
+    const clsAtivo = (tipo) => filtroAtivo === tipo ? ' ativo' : '';
+
     document.getElementById('stats').innerHTML = `
-      <div class="stat cat-primary red"><span class="stat-label">Efetivo Restrições (TAF IV)</span><span class="stat-value">${total}</span></div>
-      <div class="stat"><span class="stat-label">Efetivo Total 3º B.C.</span><span class="stat-value">${db.officers.length}</span></div>
-      <div class="stat amber"><span class="stat-label">Membros Sup.</span><span class="stat-value">${ms}</span></div>
-      <div class="stat amber"><span class="stat-label">Membros Inf.</span><span class="stat-value">${mi}</span></div>
-      <div class="stat red"><span class="stat-label">Coluna / Cardíaco</span><span class="stat-value">${col + card}</span></div>
+
+      <!-- 1) Efetivo de Restrição (apenas visualização) -->
+      <div class="stat cat-primary red">
+        <span class="stat-label">Efetivo de Restrição (TAF IV)</span>
+        <span class="stat-value">${total}</span>
+      </div>
+
+            <!-- 2) Efetivo Total (apenas visualização) -->
+      <div class="stat cat-primary">
+        <span class="stat-label">Efetivo Total 3º B.C.</span>
+        <span class="stat-value">${db.officers.length}</span>
+      </div>
+
+      <!-- 3) Membros Superiores (clicável) -->
+      <div class="stat amber restricao-card${clsAtivo('Lesão Membros Superiores')}"
+           data-restricao="Lesão Membros Superiores"
+           role="button" tabindex="0"
+           title="Clique para filtrar por Restrição de Membros Superiores">
+        <span class="stat-label">Restrição de Membros Superiores</span>
+        <span class="stat-value">${ms}</span>
+      </div>
+
+      <!-- 4) Membros Inferiores (clicável) -->
+      <div class="stat amber restricao-card${clsAtivo('Lesão Membros Inferiores')}"
+           data-restricao="Lesão Membros Inferiores"
+           role="button" tabindex="0"
+           title="Clique para filtrar por Restrição de Membros Inferiores">
+        <span class="stat-label">Restrição de Membros Inferiores</span>
+        <span class="stat-value">${mi}</span>
+      </div>
+
+      <!-- 5) Coluna Vertebral (clicável) -->
+      <div class="stat amber restricao-card${clsAtivo('Coluna Vertebral')}"
+           data-restricao="Coluna Vertebral"
+           role="button" tabindex="0"
+           title="Clique para filtrar por Restrição de Coluna Vertebral">
+        <span class="stat-label">Restrição de Coluna Vertebral</span>
+        <span class="stat-value">${col}</span>
+      </div>
+
+      <!-- 6) Cardíaco (clicável) -->
+      <div class="stat amber restricao-card${clsAtivo('Cardíaco')}"
+           data-restricao="Cardíaco"
+           role="button" tabindex="0"
+           title="Clique para filtrar por Restrição Cardíaco">
+        <span class="stat-label">Restrição Cardíaco</span>
+        <span class="stat-value">${card}</span>
+      </div>
     `;
+
+    // Liga os cliques apenas nos cards clicáveis
+    document.querySelectorAll('#stats .restricao-card').forEach(cardEl => {
+      const tipo = cardEl.dataset.restricao;
+      const toggle = () => {
+        // Clicar no card já ativo remove o filtro
+        state.filtroRestricao = (state.filtroRestricao === tipo) ? null : tipo;
+        render();
+      };
+      cardEl.addEventListener('click', toggle);
+      cardEl.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' '){
+          e.preventDefault();
+          toggle();
+        }
+      });
+    });
+
     return;
   }
 
@@ -81,6 +167,9 @@ function renderStats(){
   `;
 }
 
+/* ============================================================
+   RENDER CONTENT
+   ============================================================ */
 function renderContent(){
   const container = document.getElementById('content');
 
@@ -120,18 +209,45 @@ function renderContent(){
       emptyMsg = 'Nenhum policial apto (TAF III) encontrado.';
     } else if (state.activeCategory === 'efetivo_restricoes'){
       filteredOfficers = filteredOfficers.filter(o => o.taf === 'IV');
-      titlePrefix = 'Efetivo Restrições (TAF IV)';
+      titlePrefix = 'Efetivo de Restrição (TAF IV)';
       emptyMsg = 'Nenhum policial com restrição (TAF IV) encontrado.';
+
+      // Filtro por tipo de restrição (via cards clicáveis)
+      if (state.filtroRestricao){
+        filteredOfficers = filteredOfficers.filter(o => o.tafIVTipo === state.filtroRestricao);
+        const rotulo = FILTRO_RESTRICAO_LABELS[state.filtroRestricao] || state.filtroRestricao;
+        titlePrefix = `Efetivo de Restrição — ${rotulo}`;
+        emptyMsg = `Nenhum policial com restrição em ${rotulo} encontrado.`;
+      }
+    }
+
+    // Banner de filtro ativo (só aparece em efetivo_restricoes com filtro)
+    let bannerHTML = '';
+    if (state.activeCategory === 'efetivo_restricoes' && state.filtroRestricao){
+      const rotulo = FILTRO_RESTRICAO_LABELS[state.filtroRestricao] || state.filtroRestricao;
+      bannerHTML = `
+        <div class="filtro-restricao-banner">
+          <div class="filtro-restricao-info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+            <span>Filtrando por: <strong>${escapeHTML(rotulo)}</strong></span>
+          </div>
+          <button class="btn btn-outline btn-sm" id="btn-limpar-filtro-restricao">
+            Mostrar todas as restrições
+          </button>
+        </div>`;
     }
 
     const todos = filteredOfficers.sort(sortOfficersManual);
     if (todos.length === 0){
-      container.innerHTML = `
+      container.innerHTML = bannerHTML + `
         <div class="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 7a4 4 0 100 8 4 4 0 000-8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
           <h3>${emptyMsg}</h3>
           <p>Clique em <strong>"Importar Base"</strong> para carregar a planilha.</p>
         </div>`;
+      bindBotaoLimparFiltro();
       return;
     }
     let html = '';
@@ -155,8 +271,10 @@ function renderContent(){
         _tituloCustom: `${titlePrefix} — Não classificados`
       }, semCat);
     }
-    container.innerHTML = html;
+
+    container.innerHTML = bannerHTML + html;
     bindTurmaEvents(container);
+    bindBotaoLimparFiltro();
     return;
   }
 
@@ -187,6 +305,20 @@ function renderContent(){
   bindTurmaEvents(container);
 }
 
+/* Liga o botão "Mostrar todas as restrições" (só existe quando há filtro ativo) */
+function bindBotaoLimparFiltro(){
+  const btn = document.getElementById('btn-limpar-filtro-restricao');
+  if (btn){
+    btn.addEventListener('click', () => {
+      state.filtroRestricao = null;
+      render();
+    });
+  }
+}
+
+/* ============================================================
+   BIND DE EVENTOS DA TURMA (sem alterações)
+   ============================================================ */
 function bindTurmaEvents(container){
   container.querySelectorAll('.turma-head').forEach(head => {
     head.addEventListener('click', e => {
@@ -287,13 +419,15 @@ async function salvarOrdemDoTbody(tbody){
   toast('Ordem da turma salva.', 'success');
 }
 
+/* ============================================================
+   RENDER TURMA (sem alterações)
+   ============================================================ */
 function renderTurma(t, officers){
   const isVirtual = !!t._virtual;
   const isConcluida = !!t.concluida;
   const obs = (t.observacoes || '').trim();
   const titulo = t._tituloCustom || ('Turma ' + t.numero);
   const badgeNum = isVirtual ? '★' : t.numero;
-  // Referência de validade: data de início da turma (ou hoje para virtuais)
   const referencia = t.dataInicio || '';
 
   const rows = officers.length === 0
@@ -373,16 +507,13 @@ function renderTurma(t, officers){
 }
 
 /* ============================================================
-   HELPERS DE VALIDADE
+   HELPERS DE VALIDADE (sem alterações)
    ============================================================ */
-
-// Data de hoje no formato "YYYY-MM-DD" (fuso local).
 function hojeISO(){
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-// Soma 1 ano a uma data "YYYY-MM-DD". Retorna '' se inválida.
 function addUmAno(isoDate){
   if (!isoDate) return '';
   const s = String(isoDate).trim();
@@ -392,8 +523,6 @@ function addUmAno(isoDate){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-// Verdadeiro se `isoDate` é anterior à data de referência.
-// Se `referenceISO` for vazio/inválido, usa "hoje".
 function isDataVencida(isoDate, referenceISO){
   if (!isoDate) return false;
   const s = String(isoDate).trim();
@@ -404,7 +533,6 @@ function isDataVencida(isoDate, referenceISO){
   return s < ref;
 }
 
-// Exame vale 1 ano. Está vencido se (dataExame + 1 ano) < referência.
 function isExameVencido(isoExamDate, referenceISO){
   if (!isoExamDate) return false;
   const venc = addUmAno(isoExamDate);
@@ -412,10 +540,6 @@ function isExameVencido(isoExamDate, referenceISO){
   return isDataVencida(venc, referenceISO);
 }
 
-// Célula de exame:
-// - Vazio       → "—" sem pill
-// - Vencido     → pill vermelho
-// - Em validade → pill verde
 function renderExamCell(isoDate, isExpired, label, referenceISO){
   if (!isoDate) return `<td class="cell-muted">—</td>`;
   const cls = isExpired ? 'pill-red' : 'pill-green';
@@ -429,10 +553,6 @@ function renderExamCell(isoDate, isExpired, label, referenceISO){
   return `<td><span class="pill ${cls}" title="${escapeHTML(titulo)}">${fmtDate(isoDate)}</span></td>`;
 }
 
-// Célula da Val. IAS:
-// - Vazio       → "—" sem pill
-// - Vencida     → pill vermelho
-// - Em validade → pill verde
 function renderIASCells(isoValidade, isExpired, referenceISO){
   if (!isoValidade) return `<td class="cell-muted">—</td>`;
   const cls = isExpired ? 'pill-red' : 'pill-green';
@@ -459,15 +579,14 @@ function renderOfficerRow(o, referenceISO){
     }
   }
 
-  // ---- Validade relativa à data de início da turma (ou hoje se virtual) ----
   const ref = referenceISO || hojeISO();
 
   const medicoVencido = isExameVencido(o.dataExameMedico, ref);
   const odontoVencido = isExameVencido(o.dataExameOdonto, ref);
   const temExames = !!(o.dataExameMedico || o.dataExameOdonto);
   const iasVencido = temExames
-    ? (medicoVencido || odontoVencido)   // qualquer exame vencido → IAS vermelha
-    : isDataVencida(o.validadeIAS, ref); // sem exames → usa a própria validade
+    ? (medicoVencido || odontoVencido)
+    : isDataVencida(o.validadeIAS, ref);
 
   return `
     <tr draggable="true" data-officer-id="${o.id}">
@@ -539,6 +658,10 @@ async function toggleTurmaConcluida(turmaId, concluida){
 }
 
 function setActiveTab(cat){
+  // Ao trocar de tela, zera o filtro de restrição
+  if (state.activeCategory !== cat){
+    state.filtroRestricao = null;
+  }
   if (['cb_sd', 'subten_sgt', 'oficiais'].includes(cat)){
     state.lastTurmaCategory = cat;
   }
@@ -556,10 +679,9 @@ function setActiveTab(cat){
   });
 }
 
-// ============================================================
-// INSERÇÃO E GESTÃO DE TAF (TAF III e TAF IV)
-// ============================================================
-
+/* ============================================================
+   INSERÇÃO E GESTÃO DE TAF (sem alterações)
+   ============================================================ */
 function getTafDynamicFields(modalidade, sexo, current = {}){
   const isMasc = (sexo !== 'F');
 
@@ -606,33 +728,18 @@ function getTafDynamicFields(modalidade, sexo, current = {}){
     </div>`;
 
   if (modalidade === 'TAF III'){
-    return `
-      ${isMasc ? fBarra : fIsometria}
-      ${fAbdominal}
-      ${fCorrida12}
-      ${fCorrida50}
-      ${fNatacao}
-    `;
+    return `${isMasc ? fBarra : fIsometria}${fAbdominal}${fCorrida12}${fCorrida50}${fNatacao}`;
   } else if (modalidade === 'TAF IV (Lesão Membros Superiores)'){
-    return `
-      ${fCorrida12}
-      ${fCorrida50}
-      ${fAbdominal}
-    `;
+    return `${fCorrida12}${fCorrida50}${fAbdominal}`;
   } else if (modalidade === 'TAF IV (Lesão Membros Inferiores)'){
-    return `
-      ${fNatacao}
-      ${fAbdominal}
-      ${isMasc ? fBarra : fIsometria}
-    `;
+    return `${fNatacao}${fAbdominal}${isMasc ? fBarra : fIsometria}`;
   } else if (modalidade === 'TAF IV (Coluna Vertebral)'){
     return `
       <div class="field col-12">
         <label for="taf-natacao">Natação (Minutos e Segundos) <span class="req">*</span></label>
         <input type="text" id="taf-natacao" name="natacao" placeholder="Ex.: 01:10" required value="${escapeHTML(current.natacao||'')}">
         <span class="hint">Prova única exigida para Coluna Vertebral (MM:SS)</span>
-      </div>
-    `;
+      </div>`;
   }
   return '';
 }
@@ -675,8 +782,7 @@ function renderInsercaoTAF(container){
                 </button>
               </div>
             </td>
-          </tr>
-        `;
+          </tr>`;
       }).join('');
 
   container.innerHTML = `
