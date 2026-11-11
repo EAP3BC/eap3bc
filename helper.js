@@ -24,8 +24,12 @@ const TAF_IV_OPTIONS = [
 const POSTOS = ['Cel PM','Ten Cel PM','Maj PM','Cap PM','1° TEN PM','2° TEN PM',
   'Subten PM','1° SGT PM','2° SGT PM','3° SGT PM','CABO PM','SD PM'];
 
-// --- Estado da tela (qual aba, qual busca) ---
-const state = { activeCategory: 'efetivo', search: '' };
+// --- Estado da tela (qual aba, qual busca, qual filtro) ---
+const state = {
+  activeCategory: 'efetivo',
+  search: '',
+  filtroRestricao: null      // ← NOVO: filtro por tipo de restrição (TAF IV)
+};
 
 // --- Gera um identificador único para cada registro ---
 function uid(){
