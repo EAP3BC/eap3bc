@@ -313,62 +313,66 @@ async function sincronizarComSupabase({silencioso = false} = {}){
       };
 
       todos.forEach(d => {
-        const re = String(d.re || '').trim();
-        if (!re) return;
-        const aloc = alocPorRE.get(re);
-        const existing = porRE.get(re);
+  const re = String(d.re || '').trim();
+  if (!re) return;
+  const aloc = alocPorRE.get(re);
+  const existing = porRE.get(re);
 
-        if (existing){
-          if (d.dg)              existing.dg = d.dg;
-          if (d.posto_grad)      existing.postoGrad = d.posto_grad;
-          if (d.nome)            existing.nome = d.nome;
-          if (d.cia_secao)       existing.ciaSecao = d.cia_secao;
-          if (d.data_nascimento) existing.dataNascimento = d.data_nascimento;
-          if (d.ias_odonto)      existing.dataExameOdonto = d.ias_odonto;
-          if (d.ias_medico)      existing.dataExameMedico = d.ias_medico;
-          if (d.validade_ias)    existing.validadeIAS = d.validade_ias;
+  if (existing){
+    if (d.dg)              existing.dg = d.dg;
+    if (d.posto_grad)      existing.postoGrad = d.posto_grad;
+    if (d.nome)            existing.nome = d.nome;
+    if (d.cia_secao)       existing.ciaSecao = d.cia_secao;
+    if (d.data_nascimento) existing.dataNascimento = d.data_nascimento;
+    if (d.ias_odonto)      existing.dataExameOdonto = d.ias_odonto;
+    if (d.ias_medico)      existing.dataExameMedico = d.ias_medico;
+    if (d.validade_ias)    existing.validadeIAS = d.validade_ias;
 
-          if (aloc){
-            existing.turmaId         = aloc.turma_id || '';
-            existing.categoria       = aloc.categoria || existing.categoria || inferirCategoria(d.posto_grad);
-            existing.taf             = aloc.taf || 'III';
-            existing.tafIVTipo       = aloc.taf_iv_tipo || '';
-            existing.tafResultados   = aloc.taf_resultados || existing.tafResultados || null;
-            existing.inseridoEAD     = aloc.inserido_ead || 'Não';
-            existing.concluiuEAD     = aloc.concluiu_ead || 'Não';
-            existing.notaEAD         = aloc.nota_ead || '';
-            existing.dataConclusaoEAD= aloc.data_conclusao_ead || '';
-            if (typeof aloc.ordem_manual === 'number') existing.ordemManual = aloc.ordem_manual;
-          } else if (typeof existing.ordemManual !== 'number' && typeof d.ordem_manual === 'number'){
-            existing.ordemManual = d.ordem_manual;
-          }
-          atualizados++;
-        } else {
-          const ordemLegacy = (typeof d.ordem_manual === 'number') ? d.ordem_manual : undefined;
-          const novo = {
-            id: uid(), re,
-            dg: d.dg || '', postoGrad: d.posto_grad || '', nome: d.nome || '',
-            ciaSecao: d.cia_secao || '',
-            dataNascimento: d.data_nascimento || '',
-            dataExameOdonto: d.ias_odonto || '',
-            dataExameMedico: d.ias_medico || '',
-            validadeIAS: d.validade_ias || '',
-            categoria: (aloc && aloc.categoria) || inferirCategoria(d.posto_grad),
-            turmaId:   (aloc && aloc.turma_id) || '',
-            taf:       (aloc && aloc.taf) || 'III',
-            tafIVTipo: (aloc && aloc.taf_iv_tipo) || '',
-            tafResultados: (aloc && aloc.taf_resultados) || null,
-            inseridoEAD: (aloc && aloc.inserido_ead) || 'Não',
-            concluiuEAD: (aloc && aloc.concluiu_ead) || 'Não',
-            notaEAD:    (aloc && aloc.nota_ead) || '',
-            dataConclusaoEAD: (aloc && aloc.data_conclusao_ead) || '',
-            ordemManual: (aloc && typeof aloc.ordem_manual === 'number') ? aloc.ordem_manual : ordemLegacy
-          };
-          db.officers.push(novo);
-          porRE.set(re, novo);
-          novos++;
-        }
-      });
+    // 🟢 RECÁLCULO DE CATEGORIA
+    // Sempre reavalia a categoria a partir do Posto/Grad atual
+    existing.categoria = inferirCategoriaPorPosto(d.posto_grad || existing.postoGrad);
+
+    if (aloc){
+      existing.turmaId         = aloc.turma_id || '';
+      existing.taf             = aloc.taf || 'III';
+      existing.tafIVTipo       = aloc.taf_iv_tipo || '';
+      existing.tafResultados   = aloc.taf_resultados || existing.tafResultados || null;
+      existing.inseridoEAD     = aloc.inserido_ead || 'Não';
+      existing.concluiuEAD     = aloc.concluiu_ead || 'Não';
+      existing.notaEAD         = aloc.nota_ead || '';
+      existing.dataConclusaoEAD= aloc.data_conclusao_ead || '';
+      if (typeof aloc.ordem_manual === 'number') existing.ordemManual = aloc.ordem_manual;
+    } else if (typeof existing.ordemManual !== 'number' && typeof d.ordem_manual === 'number'){
+      existing.ordemManual = d.ordem_manual;
+    }
+    atualizados++;
+  } else {
+    const ordemLegacy = (typeof d.ordem_manual === 'number') ? d.ordem_manual : undefined;
+    const novo = {
+      id: uid(), re,
+      dg: d.dg || '', postoGrad: d.posto_grad || '', nome: d.nome || '',
+      ciaSecao: d.cia_secao || '',
+      dataNascimento: d.data_nascimento || '',
+      dataExameOdonto: d.ias_odonto || '',
+      dataExameMedico: d.ias_medico || '',
+      validadeIAS: d.validade_ias || '',
+      // 🟢 SEMPRE infere a categoria do Posto/Grad
+      categoria: inferirCategoriaPorPosto(d.posto_grad),
+      turmaId:   (aloc && aloc.turma_id) || '',
+      taf:       (aloc && aloc.taf) || 'III',
+      tafIVTipo: (aloc && aloc.taf_iv_tipo) || '',
+      tafResultados: (aloc && aloc.taf_resultados) || null,
+      inseridoEAD: (aloc && aloc.inserido_ead) || 'Não',
+      concluiuEAD: (aloc && aloc.concluiu_ead) || 'Não',
+      notaEAD:    (aloc && aloc.nota_ead) || '',
+      dataConclusaoEAD: (aloc && aloc.data_conclusao_ead) || '',
+      ordemManual: (aloc && typeof aloc.ordem_manual === 'number') ? aloc.ordem_manual : ordemLegacy
+    };
+    db.officers.push(novo);
+    porRE.set(re, novo);
+    novos++;
+  }
+});
 
       saveDB(); render();
       if (!silencioso){
